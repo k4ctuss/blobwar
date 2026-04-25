@@ -3,12 +3,34 @@
 #include <limits>
 
 
+Strategy::Strategy(bidiarray<Sint16> &blobs,
+    const bidiarray<bool> &holes,
+    const Uint16 current_player,
+    void (*saveBestMove)(movement &))
+    : _blobs(blobs), _holes(holes), _current_player(current_player), _saveBestMove(saveBestMove)
+{
+    _availablePosNum = 0;
+    for(Sint8 i = 0; i < 8; i++){
+        for(Sint8 j = 0; j < 8; j++){
+            if(!_holes.get(i, j) && _blobs.get(i, j) == -1) _availablePosNum++;
+        }
+    }
+#if DEBUG
+    cout << "Available position number: " <<_availablePosNum << endl;
+#endif
+}
+
+bool Strategy::isBoardFull() const{
+    return _availablePosNum <= 0;
+}
+
 
 void Strategy::applyMove (const movement& mv) {
     // check either the move is a copy or a move
     if((mv.ox-mv.nx)*(mv.ox-mv.nx)<=1 && (mv.oy-mv.ny)*(mv.oy-mv.ny)<=1)
     { // copy
         _blobs.set(mv.nx, mv.ny, _current_player);
+        _availablePosNum--; // blob duplication decrease available position number;
     }else{ // move
         _blobs.set(mv.ox, mv.oy, -1);
         _blobs.set(mv.nx, mv.ny, _current_player);
@@ -37,6 +59,7 @@ Sint32 Strategy::estimateCurrentScore () const {
             }
         }
     }
+    if(score > 0 && isBoardFull()) return 100;
 
     return score;
 }
@@ -90,7 +113,7 @@ void Strategy::switchPlayer(){
  *  ======    implement minMax algo with negamax convention
  */
 Sint32 Strategy::negamax(int depth, movement &bestMove){
-    if(depth <= 0)
+    if(depth <= 0 || isBoardFull())
         return estimateCurrentScore();
 
     Sint32 bestScore = numeric_limits<Sint32>::min(); // -INFINITY
@@ -120,10 +143,40 @@ Sint32 Strategy::negamax(int depth, movement &bestMove){
     return bestScore;
 }
 
+Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement& bestMove){
+    if(depth <= 0 || isBoardFull())
+        return estimateCurrentScore();
+
+    vector<movement> valid;
+    computeValidMoves(valid); // search all possible validMoves
+    movement dummy;
+    if(valid.empty()){
+        // no valid move, so we skip the current player
+        Strategy next(*this);
+        next.switchPlayer();
+        return -next.alphaBetaSeq(depth-1, -beta, -alpha, dummy);
+    }
+    for(movement& mv: valid){
+        Strategy next(*this);
+        next.applyMove(mv);
+        int score = -next.alphaBetaSeq(depth-1, -beta, -alpha, dummy);
+        if(score>=alpha){
+#if DEBUG
+            //cout<<"coupure"<< score<<">=" << alpha<<endl;
+#endif
+            alpha = score;
+            bestMove = mv;
+            if(alpha>=beta)
+                break;
+        }
+    }
+    return alpha;
+}
+
 void Strategy::computeBestMove () {
 
     movement bestMove;
-    this->negamax(DEPTH, bestMove);
+    cout << "score: " << this->alphaBetaSeq(DEPTH, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove) << endl;
     _saveBestMove(bestMove);
 }
 
