@@ -24,6 +24,7 @@ void Strategy::applyMove (const movement& mv) {
             }
         }
     }
+    switchPlayer(); // once move is applying, we change the current player
 }
 
 Sint32 Strategy::estimateCurrentScore () const {
@@ -59,8 +60,13 @@ vector<movement>& Strategy::computeValidMoves (vector<movement>& valid_moves) co
     return valid_moves;
 }
 
-void Strategy::computeBestMove () {
-    // To be improved...
+void Strategy::switchPlayer(){
+    _current_player = (_current_player+1)&1;
+}
+
+/*
+ *   ====== implementation 1 profondeur simple ==========
+ void Strategy::computeBestMove () {
     Sint32 bestScore = numeric_limits<Sint32>::min();
     movement bestMove;
     vector<movement> valid_moves;
@@ -77,5 +83,47 @@ void Strategy::computeBestMove () {
     }
     _saveBestMove(bestMove);
     return;
+}
+*/
+
+/*
+ *  ======    implement minMax algo with negamax convention
+ */
+Sint32 Strategy::negamax(int depth, movement &bestMove){
+    if(depth <= 0)
+        return estimateCurrentScore();
+
+    Sint32 bestScore = numeric_limits<Sint32>::min(); // -INFINITY
+    vector<movement> valid;
+    computeValidMoves(valid); // search all possible validMoves
+
+    if(valid.empty()){
+        // no valid move, so we skip the current player
+        Strategy next(*this);
+        next.switchPlayer();
+        movement dummy;
+        return -next.negamax(depth-1, dummy);
+    }
+    movement localBest;
+
+    for(movement& mv: valid){
+        Strategy next(*this);
+        next.applyMove(mv);
+        movement dummy;
+        Sint32 score = -next.negamax(depth-1, dummy);
+        if(score > bestScore){
+            bestScore = score;
+            localBest = mv;
+        }
+    }
+    bestMove = localBest;
+    return bestScore;
+}
+
+void Strategy::computeBestMove () {
+
+    movement bestMove;
+    this->negamax(DEPTH, bestMove);
+    _saveBestMove(bestMove);
 }
 

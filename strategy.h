@@ -4,7 +4,7 @@
 #include "common.h"
 #include "bidiarray.h"
 #include "move.h"
-
+#define DEPTH 4
 
 
 class Strategy {
@@ -62,7 +62,16 @@ public:
          * Find the best move.
          */
     void computeBestMove ();
-    
+
+    /**
+     *  implement negamax algorithme to find the best move to play with max DEPTH search
+     */
+    Sint32 negamax(int depth, movement& bestMove);
+
+    /**
+     *  switch current player
+     */
+    void switchPlayer();
     
 };
 
