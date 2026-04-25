@@ -1,25 +1,46 @@
 #include "strategy.h"
+#include <cstdint>
+#include <limits>
 
 
 
 void Strategy::applyMove (const movement& mv) {
-        // To be completed...
+    // check either the move is a copy or a move
+    if((mv.ox-mv.nx)*(mv.ox-mv.nx)<=1 && (mv.oy-mv.ny)*(mv.oy-mv.ny)<=1)
+    { // copy
+        _blobs.set(mv.nx, mv.ny, _current_player);
+    }else{ // move
+        _blobs.set(mv.ox, mv.oy, -1);
+        _blobs.set(mv.nx, mv.ny, _current_player);
+    }
+
+    // check for neighbors change
+    for(Sint8 i = -1; i < 2; i++){
+        for(Sint8 j = -1; j < 2; j++){
+            if(mv.nx+i < 0 || mv.nx+i > 7) continue;
+            if(mv.ny+j < 0 || mv.ny+j > 7) continue;
+            if(_blobs.get(mv.nx+i, mv.ny+j) != -1 && _blobs.get(mv.nx+i, mv.ny+j) != _current_player){
+                _blobs.set(mv.nx+i, mv.ny+j, _current_player);
+            }
+        }
+    }
 }
 
 Sint32 Strategy::estimateCurrentScore () const {
-        // To be completed...
-    return 0;
+    Sint32 score = 0;
+    for(int i = 0; i < 8; i++){
+        for(int j = 0; j < 8; j++){
+            if(_blobs.get(i,j) != -1){
+                if(_blobs.get(i,j) == (int) _current_player) score++;
+                else score--;
+            }
+        }
+    }
+
+    return score;
 }
 
 vector<movement>& Strategy::computeValidMoves (vector<movement>& valid_moves) const {
-        // To be completed...
-    return valid_moves;
-}
-
-void Strategy::computeBestMove () {
-    // To be improved...
-
-    //The following code finds a valid move.
     movement mv(0,0,0,0);
     //iterate on starting position
     for(mv.ox = 0 ; mv.ox < 8 ; mv.ox++) {
@@ -29,15 +50,32 @@ void Strategy::computeBestMove () {
                 for(mv.nx = std::max(0,mv.ox-2) ; mv.nx <= std::min(7,mv.ox+2) ; mv.nx++) {
                     for(mv.ny = std::max(0,mv.oy-2) ; mv.ny <= std::min(7,mv.oy+2) ; mv.ny++) {
                         if (_holes.get(mv.nx, mv.ny)) continue;
-                        if (_blobs.get(mv.nx, mv.ny) == -1) goto end_choice;
+                        if (_blobs.get(mv.nx, mv.ny) == -1) valid_moves.push_back(movement(mv));
                     }
                 }
             }
         }
     }
+    return valid_moves;
+}
 
-end_choice:
-     _saveBestMove(mv);
-     return;
+void Strategy::computeBestMove () {
+    // To be improved...
+    Sint32 bestScore = numeric_limits<Sint32>::min();
+    movement bestMove;
+    vector<movement> valid_moves;
+    computeValidMoves(valid_moves);
+
+    for(movement &mv : valid_moves){
+        Strategy nextStrat = Strategy(*this);
+        nextStrat.applyMove(mv);
+        Sint32 score = nextStrat.estimateCurrentScore();
+        if(score>bestScore){
+            bestScore = score;
+            bestMove = mv;
+        }
+    }
+    _saveBestMove(bestMove);
+    return;
 }
 
