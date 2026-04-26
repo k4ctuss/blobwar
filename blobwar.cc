@@ -588,7 +588,8 @@ void blobwar::set_winner(Uint16 player) {
 	winner_images[player]->show();
 	winlabel1->show();
 	winlabel2->show();
-	wingamebutton->show();	
+	wingamebutton->show();
+    Strategy::reset();
 }
 
 void blobwar::set_scores(Uint32 s1, Uint32 s2) {

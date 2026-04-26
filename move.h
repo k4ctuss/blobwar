@@ -24,4 +24,12 @@ struct movement
     Uint8 ny;
 };
 
+struct moveInfo{
+    movement mv;
+    bool isCopy;
+    Uint8 converted_count;
+    Sint8    converted_x[8];
+    Sint8    converted_y[8];
+};
+
 #endif

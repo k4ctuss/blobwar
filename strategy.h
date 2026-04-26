@@ -48,7 +48,7 @@ private:
     Sint16 _availablePosNum;
     Sint16 _initalAvailablePosNum;
     //! flag to know if the table is alredy set
-    static bool _isZobristHashesSet = false;
+    static bool _isZobristHashesSet;
     //! tableau des hash de zobrist pour la table
     static uint64_t _zobristHashes[64][3] ;
     static uint64_t _zobrist_turn; // hash for the player switching
@@ -115,7 +115,12 @@ public:
      * Apply a move to the current state of blobs
      * Assumes that the move is valid
      */
-    void applyMove(const movement &mv);
+    moveInfo applyMove(const movement &mv);
+    /**
+    * Apply a move to the current state of blobs
+    * Assumes that the move is valid
+    */
+    void undoMove(const moveInfo &info);
 
     /**
      * Compute the vector containing every possible moves
@@ -146,6 +151,11 @@ public:
      * implement alpha beta algorithme to find the next bestMove with max depth search (seq algo)
      */
     Sint32 alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement &bestMove);
+
+    /**
+     * reset TT and zobrist hashes table
+     */
+     static void reset();
 
 };
 

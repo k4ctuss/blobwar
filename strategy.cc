@@ -9,6 +9,14 @@ uint64_t Strategy::_zobrist_turn;
 TTEntry  Strategy::_TT[Strategy::TT_SIZE];
 bool Strategy::_isZobristHashesSet = false;
 
+void Strategy::reset(){
+#if DEBUG
+    cout<< "reset de Strategy"<<endl;
+#endif
+    _isZobristHashesSet = false;
+    std::fill(std::begin(_TT), std::end(_TT), TTEntry{});
+}
+
 Strategy::Strategy(bidiarray<Sint16> &blobs,
     const bidiarray<bool> &holes,
     const Uint16 current_player,
@@ -19,9 +27,6 @@ Strategy::Strategy(bidiarray<Sint16> &blobs,
     for(Sint8 i = 0; i < 8; i++){
         for(Sint8 j = 0; j < 8; j++){
             if(!_holes.get(i, j) && _blobs.get(i, j) == -1) _availablePosNum++;
-            for(int state=0; state<3; state++){
-                _zobristHashes[i*8+j][state] = rng();
-            }
         }
     }
     _initalAvailablePosNum = _availablePosNum;
@@ -65,9 +70,16 @@ bool Strategy::isBoardFull() const{
 }
 
 
-void Strategy::applyMove (const movement& mv) {
+moveInfo Strategy::applyMove (const movement& mv) {
+
+    moveInfo info;
+    info.mv = mv;
+    info.converted_count = 0;
+    int ddx = mv.ox - mv.nx, ddy = mv.oy - mv.ny;
+    info.isCopy = (ddx*ddx <= 1 && ddy*ddy <= 1);
+
     // check either the move is a copy or a move
-    if((mv.ox-mv.nx)*(mv.ox-mv.nx)<=1 && (mv.oy-mv.ny)*(mv.oy-mv.ny)<=1)
+    if(info.isCopy)
     { // copy
         _blobs.set(mv.nx, mv.ny, _current_player);
         _availablePosNum--; // blob duplication decrease available position number;
@@ -86,6 +98,12 @@ void Strategy::applyMove (const movement& mv) {
             if(keyX < 0 || keyX > 7) continue;
             if(keyY < 0 || keyY > 7) continue;
             if(_blobs.get(keyX, keyY) != -1 && _blobs.get(keyX,keyY) != _current_player){
+
+                //save info
+                info.converted_x[info.converted_count] = keyX;
+                info.converted_y[info.converted_count] = keyY;
+                info.converted_count++;
+
                 _blobs.set(keyX, keyY, _current_player);
                 _currZobristHash ^= _zobristHashes[keyX*8+keyY][_current_player]; // add play
                 _currZobristHash ^= _zobristHashes[keyX*8+keyY][1-_current_player]; // remove opponent
@@ -94,6 +112,35 @@ void Strategy::applyMove (const movement& mv) {
     }
     switchPlayer(); // once move is applying, we change the current player
     _currZobristHash ^= _zobrist_turn;
+    return info;
+}
+
+void Strategy::undoMove(const moveInfo &info){
+    // on revient au joueur qui a joué ce coup
+    switchPlayer();
+    _currZobristHash ^= _zobrist_turn;
+
+    movement mv = info.mv;
+
+    if(info.isCopy){
+        _blobs.set(mv.nx, mv.ny, -1);
+        _availablePosNum++;
+        _currZobristHash ^= _zobristHashes[mv.nx*8+mv.ny][_current_player];
+    }else{
+        _blobs.set(mv.ox, mv.oy, _current_player);
+        _blobs.set(mv.nx, mv.ny, -1);
+        _currZobristHash ^= _zobristHashes[mv.nx*8+mv.ny][_current_player];
+        _currZobristHash ^= _zobristHashes[mv.ox*8+mv.oy][_current_player];
+    }
+
+    Uint16 opp = 1-_current_player;
+    for(Uint8 i = 0; i < info.converted_count; i++){
+        Sint8 kx = info.converted_x[i];
+        Sint8 ky = info.converted_y[i];
+        _blobs.set(kx, ky, 1-_current_player);
+        _currZobristHash ^= _zobristHashes[kx*8+ky][_current_player];
+        _currZobristHash ^= _zobristHashes[kx*8+ky][opp];
+    }
 }
 
 /*
@@ -483,20 +530,20 @@ Sint32 Strategy::negamax(int depth, movement &bestMove){
     movement localBest;
 
     // Check if opponent is blocked (compute once, not for each move)
-    Strategy oppCheck(*this);
-    oppCheck.switchPlayer();
+    switchPlayer();
     vector<movement> oppCheckMoves;
-    oppCheck.computeValidMoves(oppCheckMoves);
+    computeValidMoves(oppCheckMoves);
+    switchPlayer();
     bool currentOppBlocked = oppCheckMoves.empty();
 
     sort(valid.begin(), valid.end(), [&](const movement& a, const movement& b) {
         return scoreMove(a, currentOppBlocked) > scoreMove(b, currentOppBlocked);
     });
     for(movement& mv: valid){
-        Strategy next(*this);
-        next.applyMove(mv);
+        moveInfo info = applyMove(mv);
         movement dummy;
-        Sint32 score = -next.negamax(depth-1, dummy);
+        Sint32 score = -negamax(depth-1, dummy);
+        undoMove(info);
         if(score > bestScore){
             bestScore = score;
             localBest = mv;
@@ -528,27 +575,25 @@ Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement& be
     computeValidMoves(valid); // search all possible validMoves
     movement dummy;
     if(valid.empty()){
-        // no valid move, so we skip the current player
-        Strategy next(*this);
-        next.switchPlayer();
-        return -next.alphaBetaSeq(depth-1, -beta, -alpha, dummy);
+        switchPlayer();
+        return -alphaBetaSeq(depth-1, -beta, -alpha, dummy);
     }
 
     // Check if opponent is blocked (compute once, not for each move)
-    Strategy oppCheck(*this);
-    oppCheck.switchPlayer();
+    switchPlayer();
     vector<movement> oppCheckMoves;
-    oppCheck.computeValidMoves(oppCheckMoves);
+    computeValidMoves(oppCheckMoves);
     bool currentOppBlocked = oppCheckMoves.empty();
+    switchPlayer();
 
     sort(valid.begin(), valid.end(), [&](const movement& a, const movement& b) {
         return scoreMove(a, currentOppBlocked) > scoreMove(b, currentOppBlocked);
     });
     Sint32 bestScore = numeric_limits<Sint32>::min(); // -INFINITY
     for(movement& mv: valid){
-        Strategy next(*this);
-        next.applyMove(mv);
-        int score = -next.alphaBetaSeq(depth-1, -beta, -alpha, dummy);
+        moveInfo info = applyMove(mv);
+        int score = -alphaBetaSeq(depth-1, -beta, -alpha, dummy);
+        undoMove(info);
         if(score > bestScore) {
             bestScore = score;
             bestMove = mv;

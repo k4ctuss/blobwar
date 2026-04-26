@@ -15,6 +15,7 @@
 #include"board.h"
 #include"rules.h"
 #include"network.h"
+#include "strategy.h"
 
 /** this is the main game class. All objects are stored in it. */
 class blobwar {
