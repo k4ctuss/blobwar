@@ -4,7 +4,34 @@
 #include "common.h"
 #include "bidiarray.h"
 #include "move.h"
-#define DEPTH 6
+#include "random"
+#include <algorithm>
+#define DEPTH 7
+
+enum class TTFlag : uint8_t { EXACT, LOWER, UPPER };
+
+struct TTEntry {
+    uint64_t hash;
+    Sint32   score;
+    int      depth;
+    TTFlag   flag;
+    struct movement mv;
+};
+
+typedef struct Weights {
+    int blob;       // size diff blob
+    int border;     // open border diff
+    int contained;  // penality if critical border (≤ 2)
+    int center;     // center control
+}Weights;
+
+typedef struct BlobStats {
+    int  size;
+    int  border;
+    int  center;
+    bool contained;
+}BlobStats;
+
 
 
 class Strategy {
@@ -19,6 +46,37 @@ private:
 
     //! current number of available position
     Sint16 _availablePosNum;
+    Sint16 _initalAvailablePosNum;
+    //! flag to know if the table is alredy set
+    static bool _isZobristHashesSet = false;
+    //! tableau des hash de zobrist pour la table
+    static uint64_t _zobristHashes[64][3] ;
+    static uint64_t _zobrist_turn; // hash for the player switching
+    //! transposition table size
+    static constexpr size_t TT_SIZE = 1 << 22;  // ~4 millions entries
+    static struct TTEntry _TT[TT_SIZE];
+
+    //! Indexage :takes the N least significant bits from hash
+    size_t tt_index(uint64_t hash) {
+        return hash & (TT_SIZE - 1);
+    }
+    //! Lookup
+    TTEntry* tt_lookup(uint64_t hash) {
+        TTEntry& entry = _TT[tt_index(hash)];
+        if (entry.hash == hash) return &entry;
+        return nullptr;
+    }
+    //! Store
+    void tt_store(uint64_t hash, Sint32 score, int depth, TTFlag flag, struct movement best_move) {
+        TTEntry& entry = _TT[tt_index(hash)];
+        // depth-first:
+        if (entry.hash == 0 || depth >= entry.depth) {
+            entry = {hash, score, depth, flag, best_move};
+        }
+    }
+
+    //! current zobrist hash
+    uint64_t _currZobristHash;
 
     //! Call this function to save your best move.
     //! Multiple call can be done each turn,
@@ -27,6 +85,13 @@ private:
 
     //! check if the board is full
     bool isBoardFull() const;
+
+    BlobStats bfs(int player) const;
+
+    const Weights& select_weights() const;
+
+    //! helper to sort movement
+    int scoreMove(const movement& mv, bool oppIsBlocked = false);
 
 public:
     // Constructor from a current situation
@@ -38,7 +103,8 @@ public:
 
     // Copy constructor
     Strategy(const Strategy &St)
-            : _blobs(St._blobs), _holes(St._holes), _current_player(St._current_player), _availablePosNum(St._availablePosNum)
+            : _blobs(St._blobs), _holes(St._holes), _current_player(St._current_player), _availablePosNum(St._availablePosNum),
+              _initalAvailablePosNum(St._initalAvailablePosNum), _currZobristHash(St._currZobristHash)
     {}
 
     // Destructor
