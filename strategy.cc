@@ -149,263 +149,103 @@ void Strategy::undoMove(const moveInfo &info){
  */
 
 // directions 4-connexes
-static constexpr int DX[4] = { 1, -1,  0,  0 };
-static constexpr int DY[4] = { 0,  0,  1, -1 };
+static constexpr int DX4[4] = { 1, -1,  0,  0 };
+static constexpr int DY4[4] = { 0,  0,  1, -1 };
+
+static constexpr int CENTER_BONUS[8][8] = {
+        {0,0,0,0,0,0,0,0},
+        {0,1,1,1,1,1,1,0},
+        {0,1,2,2,2,2,1,0},
+        {0,1,2,3,3,2,1,0},
+        {0,1,2,3,3,2,1,0},
+        {0,1,2,2,2,2,1,0},
+        {0,1,1,1,1,1,1,0},
+        {0,0,0,0,0,0,0,0},
+};
 
 static inline bool on_board(int x, int y) {
     return (unsigned)x < 8u && (unsigned)y < 8u;
 }
 
-static constexpr int WINNING_SCORE = 100000;
 
 // weight selection
+static constexpr int WINNING_SCORE = 100000;
+static constexpr Weights W_EARLY{ 300,   80,     40,     60 };
+static constexpr Weights W_MID  { 300,  100,     20,    120 };
+static constexpr Weights W_LATE { 300,   60,      5,    200 };
 
-static constexpr Weights W_EARLY { 150,  60,  80, 25 };
-static constexpr Weights W_MID   { 200,  90, 130, 12 };
-static constexpr Weights W_LATE  { 250,  70, 200,  5 };
 
-BlobStats Strategy::bfs(int player) const{
-    int sx = -1, sy = -1;
-    for (int x = 0; x < 8 && sx < 0; ++x)
-        for (int y = 0; y < 8 && sx < 0; ++y)
-            if (_blobs.get(x, y) == player) { sx = x; sy = y; }
-
-    BlobStats s{ 0, 0, 0, false };
-    if (sx < 0) return s;
-
-    uint64_t vis_blob   = 0;
-    uint64_t vis_border = 0;
-
-    int qx[64], qy[64];
-    int head = 0, tail = 0;
-
-    auto push = [&](int x, int y) {
-        uint64_t bit = 1ULL << (y * 8 + x);
-        if (vis_blob & bit) return;
-        vis_blob |= bit;
-        qx[tail] = x; qy[tail] = y;
-        tail = (tail + 1) & 63;
-    };
-
-    push(sx, sy);
-    int open_adj_total = 0;
-
-    while (head != tail) {
-        int cx = qx[head], cy = qy[head];
-        head = (head + 1) & 63;
-        ++s.size;
-
-        int dist = std::max(std::abs(cx - 3), std::abs(cy - 3));
-        s.center += std::max(0, 3 - dist);
-
-        for (int d = 0; d < 4; ++d) {
-            int nx = cx + DX[d];
-            int ny = cy + DY[d];
-            if (!on_board(nx, ny) || _holes.get(nx, ny)) continue;
-
-            Sint16 cell = _blobs.get(nx, ny);
-            if (cell == player) {
-                push(nx, ny);
-            } else if (cell == -1) {
-                ++open_adj_total;
-                uint64_t bit = 1ULL << (ny * 8 + nx);
-                if (!(vis_border & bit)) {
-                    vis_border |= bit;
-                    ++s.border;
-                }
-            }
-        }
-    }
-
-    s.contained = (open_adj_total == 0);
-    return s;
-}
-
-const Weights& Strategy::select_weights() const {
-    if (_initalAvailablePosNum == 0) return W_LATE;
-
-    if (_availablePosNum * 100 < _initalAvailablePosNum * 35) return W_EARLY;
-    if (_availablePosNum * 100 < _initalAvailablePosNum * 65) return W_MID;
+const Weights &Strategy::select_weights(Sint16 available, Sint16 initial)const{
+    if (initial == 0) return W_LATE;
+    if (available * 100 > initial * 65) return W_EARLY;
+    if (available * 100 > initial * 35) return W_MID;
     return W_LATE;
 }
-/*
-Sint32 Strategy::estimateCurrentScore() const {
-    const int me  = static_cast<int>(_current_player);
-    const int opp = 1 - me;
 
-    const Weights& W = select_weights();
+void Strategy::collect_stats(int player, PlayerStats& out)const{
+    out = {0, 0, 0, 8}; // min_border initialisé à 8 (max possible)
 
-    BlobStats my  = bfs(me);
-    BlobStats adv = bfs(opp);
+    uint64_t frontier_mask = 0; // bitmap des cases frontier
 
-    if (my.contained)  return -WINNING_SCORE + my.size;
-    if (adv.contained) return  WINNING_SCORE - adv.size;
+    for (int x = 0; x < 8; ++x) {
+        for (int y = 0; y < 8; ++y) {
+            if (_blobs.get(x, y) != player) continue;
 
-    Sint32 score = W.blob * (my.size - adv.size);
+            // material + centre
+            out.material++;
+            out.center += CENTER_BONUS[x][y];
 
-    score += W.border * (my.border - adv.border);
-
-    if (my.border <= 2)
-        score -= W.contained * (3 - my.border);
-    if (adv.border <= 2)
-        score += W.contained * (3 - adv.border);
-
-    score += W.center * (my.center - adv.center);
-
-    return score;
-}
-*/
-
-Sint32 Strategy::estimateCurrentScore() const {
-
-    Sint32 myCount = 0;
-    Sint32 oppCount = 0;
-
-    Sint32 myMobility = 0;
-    Sint32 oppMobility = 0;
-
-    Sint32 myPotential = 0;
-    Sint32 oppPotential = 0;
-
-    Sint32 myCloneSpots = 0;
-    Sint32 oppCloneSpots = 0;
-
-    Sint32 myIsolated = 0;
-    Sint32 oppIsolated = 0;
-
-    Uint16 opponent = 1-_current_player;
-
-    static const int dx[8] = {-1,-1,-1,0,0,1,1,1};
-    static const int dy[8] = {-1,0,1,-1,1,-1,0,1};
-
-    int width = 8;
-    int height = 8;
-
-    // Use bitsets to track unique empty and opponent cells (8x8 board = 64 cells max)
-    uint64_t myCountedEmpty = 0;
-    uint64_t myCountedOpponent = 0;
-    uint64_t oppCountedEmpty = 0;
-    uint64_t oppCountedOpponent = 0;
-
-    for(int x = 0; x < width; x++) {
-        for(int y = 0; y < height; y++) {
-
-            if(_holes.get(x,y)) continue;
-
-            Sint16 cell = _blobs.get(x,y);
-
-            if(cell == _current_player) {
-
-                myCount++;
-
-                bool hasEmptyNeighbor = false;
-
-                for(int d = 0; d < 8; d++) {
-                    int nx = x + dx[d];
-                    int ny = y + dy[d];
-
-                    if(nx < 0 || ny < 0 || nx >= width || ny >= height)
-                        continue;
-
-                    if(_holes.get(nx, ny)) continue;
-
-                    Sint16 neighbor = _blobs.get(nx, ny);
-                    uint64_t cellBit = 1ULL << (ny * 8 + nx);
-
-                    if(neighbor == 0) {
-                        hasEmptyNeighbor = true;
-                        // Only count each unique empty cell once
-                        if(!(myCountedEmpty & cellBit)) {
-                            myCountedEmpty |= cellBit;
-                            myCloneSpots++;
-                        }
-                    }
-
-                    if(neighbor == opponent) {
-                        // Only count each unique opponent cell once
-                        if(!(myCountedOpponent & cellBit)) {
-                            myCountedOpponent |= cellBit;
-                            myPotential++;
-                        }
-                    }
+            // frontier locale de cette case
+            int local_free = 0;
+            for (int d = 0; d < 4; ++d) {
+                int nx = x + DX4[d];
+                int ny = y + DY4[d];
+                if ((unsigned)nx >= 8u || (unsigned)ny >= 8u) continue;
+                if (_holes.get(nx, ny)) continue;
+                if (_blobs.get(nx, ny) == -1) {
+                    ++local_free;
+                    frontier_mask |= 1ULL << (ny * 8 + nx);
                 }
-
-                if(!hasEmptyNeighbor)
-                    myIsolated++; // forced to jump
-
-            } else if(cell == opponent) {
-
-                oppCount++;
-
-                bool hasEmptyNeighbor = false;
-
-                for(int d = 0; d < 8; d++) {
-                    int nx = x + dx[d];
-                    int ny = y + dy[d];
-
-                    if(nx < 0 || ny < 0 || nx >= width || ny >= height)
-                        continue;
-
-                    if(_holes.get(nx, ny)) continue;
-
-                    Sint16 neighbor = _blobs.get(nx, ny);
-                    uint64_t cellBit = 1ULL << (ny * 8 + nx);
-
-                    if(neighbor == 0) {
-                        hasEmptyNeighbor = true;
-                        // Only count each unique empty cell once
-                        if(!(oppCountedEmpty & cellBit)) {
-                            oppCountedEmpty |= cellBit;
-                            oppCloneSpots++;
-                        }
-                    }
-
-                    if(neighbor == _current_player) {
-                        // Only count each unique player cell once
-                        if(!(oppCountedOpponent & cellBit)) {
-                            oppCountedOpponent |= cellBit;
-                            oppPotential++;
-                        }
-                    }
-                }
-
-                if(!hasEmptyNeighbor)
-                    oppIsolated++;
             }
+
+            // min_border = cas le plus critique
+            if (local_free < out.min_border)
+                out.min_border = local_free;
         }
     }
 
-    // Mobility
-    vector<movement> moves;
-    computeValidMoves(moves);
-    myMobility = moves.size();
+    // popcount du bitmap = frontier totale distincte
+    out.frontier = __builtin_popcountll(frontier_mask);
 
-    Strategy tmp(*this);
-    tmp.switchPlayer();
-    vector<movement> oppMoves;
-    tmp.computeValidMoves(oppMoves);
-    oppMobility = oppMoves.size();
-    if(oppMoves.empty()) {
-        // opponent can't play → VERY GOOD
-        return 500000;
-    }
+    // si aucun blob : contained
+    if (out.material == 0) out.min_border = 0;
+}
 
-    // Game phase (0 = endgame, 1 = opening)
-    float phase = (float)_availablePosNum / (float)_initalAvailablePosNum;
+Sint32 Strategy::estimateCurrentScore() const {
+    const int me  = _current_player;
+    const int opp = 1 - me;
 
-    // Weights (tunable)
-    Sint32 materialWeight = 100;
-    Sint32 mobilityWeight = (phase > 0.5 ? 25 : 8);
-    Sint32 potentialWeight = 12;
-    Sint32 cloneWeight = (phase > 0.4 ? 18 : 8);      // cloning more valuable early
-    Sint32 isolationPenalty = 30;                    // strong penalty
+    PlayerStats my, adv;
+    collect_stats(me, my);
+    collect_stats(opp, adv);
 
-    Sint32 score =
-            materialWeight * (myCount - oppCount) +
-            mobilityWeight * (myMobility - oppMobility) +
-            potentialWeight * (myPotential - oppPotential) +
-            cloneWeight * (myCloneSpots - oppCloneSpots) -
-            isolationPenalty * (myIsolated - oppIsolated);
+
+    if (my.frontier  == 0 && my.material  > 0) return -WINNING_SCORE;
+    if (adv.frontier == 0 && adv.material > 0) return  WINNING_SCORE;
+
+    const Weights& W = select_weights(_availablePosNum, _initalAvailablePosNum);
+
+
+    Sint32 score = 0;
+
+    score += W.material * (my.material - adv.material);
+    score += W.frontier * (my.frontier - adv.frontier);
+    score += W.center * (my.center - adv.center);
+
+    if (my.min_border  <= 2)
+        score -= W.danger * (3 - my.min_border);
+    if (adv.min_border <= 2)
+        score += W.danger * (3 - adv.min_border);
 
     return score;
 }
@@ -434,53 +274,50 @@ vector<movement>& Strategy::computeValidMoves (vector<movement>& valid_moves) co
     return valid_moves;
 }
 
-int Strategy::scoreMove(const movement& mv, bool oppIsBlocked) {
-    int score = 0;
-
+int Strategy::scoreMove(const movement& mv) {
     int dx_move = mv.ox - mv.nx;
     int dy_move = mv.oy - mv.ny;
     bool isCopy = (dx_move * dx_move <= 1 && dy_move * dy_move <= 1);
 
-    // 1. Base scoring: favor clones (distance 1)
-    if(isCopy) {
-        score += 100;
-    } else {
-        score += 10;
-    }
+    // copie >> saut, toujours
+    int score = isCopy ? 100 : 10;
 
-    // 2. When opponent is blocked, heavily penalize jumps and reward copies
-    if(oppIsBlocked) {
-        if(isCopy) {
-            score += 500;  // Strong bonus for copies when opponent stuck
-        } else {
-            score -= 300;  // Strong penalty for jumps when opponent stuck
-        }
-    }
+    // captures : terme le plus discriminant après copy/jump
+    static const int dx[8] = {-1,-1,-1, 0, 0, 1, 1, 1};
+    static const int dy[8] = {-1, 0, 1,-1, 1,-1, 0, 1};
+    int opp = 1 - _current_player;
 
-    // 3. Count how many opponent pieces will be flipped
-    int flipped = 0;
-
-    static const int dx[8] = {-1,-1,-1,0,0,1,1,1};
-    static const int dy[8] = {-1,0,1,-1,1,-1,0,1};
-
-    Uint16 opponent = 1-_current_player;
-
-    for(int d = 0; d < 8; d++) {
+    for (int d = 0; d < 8; d++) {
         int nx = mv.nx + dx[d];
         int ny = mv.ny + dy[d];
-
-        if(nx < 0 || ny < 0 || nx >= 8 || ny >= 8)
-            continue;
-
-        if(_holes.get(nx, ny)) continue;
-
-        if(_blobs.get(nx, ny) == opponent)
-            flipped++;
+        if ((unsigned)nx >= 8u || (unsigned)ny >= 8u) continue;
+        if (_holes.get(nx, ny)) continue;
+        if (_blobs.get(nx, ny) == opp) score += 50;
     }
 
-    score += flipped * 50;
-
     return score;
+}
+
+void Strategy::sortMove(vector <movement> &valid){
+    // Précalcul unique de chaque score — scoreMove appelé exactement une fois par coup
+    int n = valid.size();
+    vector<int> scores(n);
+    for (int i = 0; i < n; i++)
+        scores[i] = scoreMove(valid[i]);
+
+    // Tri par insertion — rapide pour n < 20, ce qui est souvent le cas
+    for (int i = 1; i < n; i++) {
+        movement mv = valid[i];
+        int sc = scores[i];
+        int j = i - 1;
+        while (j >= 0 && scores[j] < sc) {
+            valid[j+1]  = valid[j];
+            scores[j+1] = scores[j];
+            --j;
+        }
+        valid[j+1]  = mv;
+        scores[j+1] = sc;
+    }
 }
 
 void Strategy::switchPlayer(){
@@ -527,18 +364,10 @@ Sint32 Strategy::negamax(int depth, movement &bestMove){
         movement dummy;
         return -next.negamax(depth-1, dummy);
     }
-    movement localBest;
 
-    // Check if opponent is blocked (compute once, not for each move)
-    switchPlayer();
-    vector<movement> oppCheckMoves;
-    computeValidMoves(oppCheckMoves);
-    switchPlayer();
-    bool currentOppBlocked = oppCheckMoves.empty();
+    sortMove(valid);
+    movement localBest = valid[0];
 
-    sort(valid.begin(), valid.end(), [&](const movement& a, const movement& b) {
-        return scoreMove(a, currentOppBlocked) > scoreMove(b, currentOppBlocked);
-    });
     for(movement& mv: valid){
         moveInfo info = applyMove(mv);
         movement dummy;
@@ -579,16 +408,7 @@ Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement& be
         return -alphaBetaSeq(depth-1, -beta, -alpha, dummy);
     }
 
-    // Check if opponent is blocked (compute once, not for each move)
-    switchPlayer();
-    vector<movement> oppCheckMoves;
-    computeValidMoves(oppCheckMoves);
-    bool currentOppBlocked = oppCheckMoves.empty();
-    switchPlayer();
-
-    sort(valid.begin(), valid.end(), [&](const movement& a, const movement& b) {
-        return scoreMove(a, currentOppBlocked) > scoreMove(b, currentOppBlocked);
-    });
+    sortMove(valid);
     Sint32 bestScore = numeric_limits<Sint32>::min(); // -INFINITY
     for(movement& mv: valid){
         moveInfo info = applyMove(mv);

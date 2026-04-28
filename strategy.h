@@ -6,7 +6,7 @@
 #include "move.h"
 #include "random"
 #include <algorithm>
-#define DEPTH 7
+#define DEPTH 5
 
 enum class TTFlag : uint8_t { EXACT, LOWER, UPPER };
 
@@ -18,20 +18,19 @@ struct TTEntry {
     struct movement mv;
 };
 
-typedef struct Weights {
-    int blob;       // size diff blob
-    int border;     // open border diff
-    int contained;  // penality if critical border (≤ 2)
-    int center;     // center control
-}Weights;
+struct Weights {
+    int material;    // #blobs
+    int frontier;    // différentiel frontier ouverte
+    int center;      // masse centrale
+    int danger;      // pénalité frontier critique
+};
 
-typedef struct BlobStats {
-    int  size;
-    int  border;
-    int  center;
-    bool contained;
-}BlobStats;
-
+struct PlayerStats {
+    int material;
+    int center;
+    int frontier;
+    int min_border;
+};
 
 
 class Strategy {
@@ -86,12 +85,15 @@ private:
     //! check if the board is full
     bool isBoardFull() const;
 
-    BlobStats bfs(int player) const;
+    const Weights& select_weights(Sint16 available, Sint16 initial)const;
 
-    const Weights& select_weights() const;
+    void collect_stats(int player, PlayerStats& out)const;
 
     //! helper to sort movement
-    int scoreMove(const movement& mv, bool oppIsBlocked = false);
+    int scoreMove(const movement& mv);
+
+    void sortMove(vector<movement>& valid);
+
 
 public:
     // Constructor from a current situation
