@@ -6,7 +6,7 @@
 #include "move.h"
 #include "random"
 #include <algorithm>
-#define DEPTH 5
+#define DEPTH 6
 
 enum class TTFlag : uint8_t { EXACT, LOWER, UPPER };
 

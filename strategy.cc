@@ -408,6 +408,17 @@ Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement& be
         return -alphaBetaSeq(depth-1, -beta, -alpha, dummy);
     }
 
+    if(entry){
+        movement tt_move = entry->mv;
+        // mettre le coup TT en premier — c'est lui qui génère le plus de coupures
+        auto it = find_if(valid.begin(), valid.end(), [&](const movement& m) {
+            return m.ox == tt_move.ox && m.oy == tt_move.oy
+                   && m.nx == tt_move.nx && m.ny == tt_move.ny;
+        });
+        if (it != valid.end())
+            iter_swap(it, valid.begin()); // O(1), pas de copie
+    }
+
     sortMove(valid);
     Sint32 bestScore = numeric_limits<Sint32>::min(); // -INFINITY
     for(movement& mv: valid){
@@ -444,7 +455,14 @@ Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement& be
 void Strategy::computeBestMove () {
 
     movement bestMove;
-    cout << "score: " << this->alphaBetaSeq(DEPTH, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove) << endl;
+    // Iterative deepening:
+    for(int d = DEPTH; d>=0; d--){
+        Sint32 score = alphaBetaSeq(DEPTH, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove);
+#if DEBUG
+            cout << "depth " << d << " score: " << score << endl;
+#endif
+
+    }
     _saveBestMove(bestMove);
 }
 
