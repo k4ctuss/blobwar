@@ -397,7 +397,7 @@ Sint32 Strategy::alphaBetaSeq(int maxDepth, int depth, Sint32 alpha, Sint32 beta
         if (alpha >= beta) return entry->score;
     }
 
-    if(depth == maxDept, hisBoardFull())
+    if(depth == maxDepth || isBoardFull())
         return estimateCurrentScore();
 
     vector<movement> valid;
@@ -457,7 +457,7 @@ void Strategy::computeBestMove () {
     movement bestMove;
     // Iterative deepening:
     for(int d = 1;;d++){
-        Sint32 score = alphaBetaSeq(d, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove);
+    Sint32 score = alphaBetaSeq(d, 1, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove);
 #if DEBUG
             cout << "depth " << d << " score: " << score << endl;
 #endif
