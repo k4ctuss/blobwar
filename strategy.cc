@@ -382,7 +382,7 @@ Sint32 Strategy::negamax(int depth, movement &bestMove){
     return bestScore;
 }
 
-Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement& bestMove){
+Sint32 Strategy::alphaBetaSeq(int maxDepth, int depth, Sint32 alpha, Sint32 beta, movement& bestMove){
 
     Sint32 initAlpha = alpha;
     // check TT
@@ -397,7 +397,7 @@ Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement& be
         if (alpha >= beta) return entry->score;
     }
 
-    if(depth <= 0 || isBoardFull())
+    if(depth == maxDept, hisBoardFull())
         return estimateCurrentScore();
 
     vector<movement> valid;
@@ -405,7 +405,7 @@ Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement& be
     movement dummy;
     if(valid.empty()){
         switchPlayer();
-        return -alphaBetaSeq(depth-1, -beta, -alpha, dummy);
+        return -alphaBetaSeq(maxDepth, depth+1, -beta, -alpha, dummy);
     }
 
     if(entry){
@@ -419,11 +419,11 @@ Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement& be
             iter_swap(it, valid.begin()); // O(1), pas de copie
     }
 
-    sortMove(valid);
+    //sortMove(valid);
     Sint32 bestScore = numeric_limits<Sint32>::min(); // -INFINITY
     for(movement& mv: valid){
         moveInfo info = applyMove(mv);
-        int score = -alphaBetaSeq(depth-1, -beta, -alpha, dummy);
+        int score = -alphaBetaSeq(maxDepth, depth+1, -beta, -alpha, dummy);
         undoMove(info);
         if(score > bestScore) {
             bestScore = score;
@@ -456,13 +456,13 @@ void Strategy::computeBestMove () {
 
     movement bestMove;
     // Iterative deepening:
-    for(int d = DEPTH; d>=0; d--){
-        Sint32 score = alphaBetaSeq(DEPTH, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove);
+    for(int d = 1;;d++){
+        Sint32 score = alphaBetaSeq(d, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove);
 #if DEBUG
             cout << "depth " << d << " score: " << score << endl;
 #endif
-
+        _saveBestMove(bestMove);
     }
-    _saveBestMove(bestMove);
+
 }
 

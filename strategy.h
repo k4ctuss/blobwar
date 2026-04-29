@@ -152,7 +152,7 @@ public:
     /**
      * implement alpha beta algorithme to find the next bestMove with max depth search (seq algo)
      */
-    Sint32 alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta, movement &bestMove);
+    Sint32 alphaBetaSeq(int maxDepth, int depth, Sint32 alpha, Sint32 beta, movement &bestMove);
 
     /**
      * reset TT and zobrist hashes table
