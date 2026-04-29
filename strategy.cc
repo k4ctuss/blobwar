@@ -220,7 +220,8 @@ void Strategy::collect_stats(int player, PlayerStats& out)const{
     // si aucun blob : contained
     if (out.material == 0) out.min_border = 0;
 }
-
+/*
+ *
 Sint32 Strategy::estimateCurrentScore() const {
     const int me  = _current_player;
     const int opp = 1 - me;
@@ -247,6 +248,20 @@ Sint32 Strategy::estimateCurrentScore() const {
     if (adv.min_border <= 2)
         score += W.danger * (3 - adv.min_border);
 
+    return score;
+}
+*/
+
+Sint32 Strategy::estimateCurrentScore() const {
+    Sint32 score = 0;
+    for(int i = 0; i < 8; i++){
+        for(int j = 0; j < 8; j++){
+            if(_blobs.get(i,j) != -1){
+                if(_blobs.get(i,j) == (int) _current_player) score++;
+                else score--;
+            }
+        }
+    }
     return score;
 }
 
@@ -391,10 +406,10 @@ Sint32 Strategy::alphaBetaSeq(int maxDepth, int depth, Sint32 alpha, Sint32 beta
 #if DEBUG
         //cout << "TT hit"<< endl;
 #endif
-        if (entry->flag == TTFlag::EXACT) return entry->score;
+        if (entry->flag == TTFlag::EXACT) {return bestMove = entry->mv, entry->score;}
         if (entry->flag == TTFlag::LOWER) alpha = std::max(alpha, entry->score);
         if (entry->flag == TTFlag::UPPER) beta  = std::min(beta,  entry->score);
-        if (alpha >= beta) return entry->score;
+        if (alpha >= beta) {return bestMove = entry->mv, entry->score;}
     }
 
     if(depth == maxDepth || isBoardFull())
@@ -419,7 +434,7 @@ Sint32 Strategy::alphaBetaSeq(int maxDepth, int depth, Sint32 alpha, Sint32 beta
             iter_swap(it, valid.begin()); // O(1), pas de copie
     }
 
-    //sortMove(valid);
+    sortMove(valid);
     Sint32 bestScore = numeric_limits<Sint32>::min(); // -INFINITY
     for(movement& mv: valid){
         moveInfo info = applyMove(mv);
@@ -457,10 +472,8 @@ void Strategy::computeBestMove () {
     movement bestMove;
     // Iterative deepening:
     for(int d = 1;;d++){
-    Sint32 score = alphaBetaSeq(d, 1, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove);
-#if DEBUG
-            cout << "depth " << d << " score: " << score << endl;
-#endif
+        // cout<<"depth: " <<d<<endl;
+        alphaBetaSeq(d, 1, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove);
         _saveBestMove(bestMove);
     }
 
