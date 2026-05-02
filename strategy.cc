@@ -2,18 +2,36 @@
 #include <cstdint>
 #include <limits>
 
+/**
+ * mes pensées:
+ * ammelioration a faire si j'étais fort:
+ * - quand adversaire ne peux plus bouger, si tout meme a defaite, aller cherhcer la draw avec des jumps aller-retour
+ * - quand adversaire ne peux plus bouger, si 1 chemin meme a la victoire, prendre direct
+ * - quand trouve victoire il faut break et ne pas chercher plus de pronfondeur.
+ * - killer heuristic and it's generalization the history heuristic
+ *
+ * Structure de donnée :
+ *  - utiliser des uint64 pour representer blob car bit a 1 => blob present sinon absent (heuristique en 0(1) avec popcount
+ */
+
+
+/**
+ * bilan des test:
+ *  - alpha beta avec et sans TT fond les meme perf en match. victoire blue 34-30 peut importe si blue a TT ou non
+ *  - alphabeta vs minmax(profondeur 4 pour minmax sinon timeout)
+ */
 
 // def of class attributs
 uint64_t Strategy::_zobristHashes[64][3];
 uint64_t Strategy::_zobrist_turn;
 TTEntry  Strategy::_TT[Strategy::TT_SIZE];
 bool Strategy::_isZobristHashesSet = false;
+static constexpr Sint32 INF = 1000000;
 
 void Strategy::reset(){
 #if DEBUG
     cout<< "reset de Strategy"<<endl;
 #endif
-    _isZobristHashesSet = false;
     std::fill(std::begin(_TT), std::end(_TT), TTEntry{});
 }
 
@@ -204,7 +222,7 @@ void Strategy::collect_stats(int player, PlayerStats& out)const{
                 if (_holes.get(nx, ny)) continue;
                 if (_blobs.get(nx, ny) == -1) {
                     ++local_free;
-                    frontier_mask |= 1ULL << (ny * 8 + nx);
+                    frontier_mask |= 1ULL << (nx * 8 + ny);
                 }
             }
 
@@ -342,7 +360,7 @@ void Strategy::switchPlayer(){
 /*
  *   ====== implementation 1 profondeur simple ==========
  void Strategy::computeBestMove () {
-    Sint32 bestScore = numeric_limits<Sint32>::min();
+    Sint32 bestScore = -INF;
     movement bestMove;
     vector<movement> valid_moves;
     computeValidMoves(valid_moves);
@@ -362,26 +380,24 @@ void Strategy::switchPlayer(){
 */
 
 /*
- *  ======    implement minMax algo with negamax convention
+ *  ======    implement minMax algo with negamax form
  */
 Sint32 Strategy::negamax(int depth, movement &bestMove){
     if(depth <= 0 || isBoardFull())
         return estimateCurrentScore();
 
-    Sint32 bestScore = numeric_limits<Sint32>::min(); // -INFINITY
+    Sint32 bestScore = -INF; // -INFINITY
     vector<movement> valid;
     computeValidMoves(valid); // search all possible validMoves
 
     if(valid.empty()){
         // no valid move, so we skip the current player
-        Strategy next(*this);
-        next.switchPlayer();
+        switchPlayer();
         movement dummy;
-        return -next.negamax(depth-1, dummy);
+        Sint32 score = -negamax(depth-1, dummy);
+        switchPlayer();
+        return score;
     }
-
-    sortMove(valid);
-    movement localBest = valid[0];
 
     for(movement& mv: valid){
         moveInfo info = applyMove(mv);
@@ -390,37 +406,79 @@ Sint32 Strategy::negamax(int depth, movement &bestMove){
         undoMove(info);
         if(score > bestScore){
             bestScore = score;
-            localBest = mv;
+            bestMove = mv;
         }
     }
-    bestMove = localBest;
     return bestScore;
 }
 
-Sint32 Strategy::alphaBetaSeq(int maxDepth, int depth, Sint32 alpha, Sint32 beta, movement& bestMove){
+Sint32 Strategy::alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta){
 
-    Sint32 initAlpha = alpha;
-    // check TT
-    struct TTEntry* entry = tt_lookup(_currZobristHash);
-    if(entry != nullptr && entry->depth >= depth){
-#if DEBUG
-        //cout << "TT hit"<< endl;
-#endif
-        if (entry->flag == TTFlag::EXACT) {return bestMove = entry->mv, entry->score;}
-        if (entry->flag == TTFlag::LOWER) alpha = std::max(alpha, entry->score);
-        if (entry->flag == TTFlag::UPPER) beta  = std::min(beta,  entry->score);
-        if (alpha >= beta) {return bestMove = entry->mv, entry->score;}
-    }
-
-    if(depth == maxDepth || isBoardFull())
+    if(depth == 0 || isBoardFull())
         return estimateCurrentScore();
 
     vector<movement> valid;
     computeValidMoves(valid); // search all possible validMoves
-    movement dummy;
+    //cout<< "curr depth " << depth<<", max depth " << maxDepth<< ", valid length "<< valid.size()<< endl;
+
     if(valid.empty()){
         switchPlayer();
-        return -alphaBetaSeq(maxDepth, depth+1, -beta, -alpha, dummy);
+        Sint32 score = -alphaBetaSeq(depth-1, -beta, -alpha);
+        switchPlayer();
+        return score;
+    }
+
+    Sint32 bestScore = -INF; // -INFINITY
+    for(movement& mv: valid){
+        moveInfo info = applyMove(mv);
+        int score = -alphaBetaSeq(depth-1, -beta, -alpha);
+        undoMove(info);
+        if(score > bestScore) {
+            bestScore = score;
+        }
+        if(score > alpha){
+            alpha = score;
+        }
+        if(alpha>=beta){
+#if DEBUG
+            //cout<<"coupure"<< score<<">=" << alpha<<endl;
+#endif
+            break;
+        }
+    }
+
+    return bestScore;
+}
+
+Sint32 Strategy::alphaBetaSeqWithTT(int depth, Sint32 alpha, Sint32 beta){
+
+    if(depth == 0 || isBoardFull())
+        return estimateCurrentScore();
+
+    Sint32 initAlpha = alpha;
+    // check TT
+    struct TTEntry* entry = tt_lookup(_currZobristHash, depth);
+    if(entry != nullptr){
+#if DEBUG
+        //cout << "TT hit"<< endl;
+#endif
+        if (entry->flag == TTFlag::EXACT) return entry->score;
+        if (entry->flag == TTFlag::LOWER) alpha = std::max(alpha, entry->score);
+        if (entry->flag == TTFlag::UPPER) beta  = std::min(beta,  entry->score);
+        if (alpha >= beta) return entry->score;
+    }
+
+    vector<movement> valid;
+    computeValidMoves(valid); // search all possible validMoves
+    //cout<< "curr depth " << depth<<", max depth " << maxDepth<< ", valid length "<< valid.size()<< endl;
+
+    if(valid.empty()){
+        switchPlayer();
+        Sint32 score = -alphaBetaSeqWithTT(depth-1, -beta, -alpha);
+        switchPlayer();
+        // Stocker dans le TT avant de retourner
+        tt_store(_currZobristHash, score, depth, TTFlag::EXACT, movement{65,65,65,65});
+        return score;
     }
 
     if(entry){
@@ -434,11 +492,12 @@ Sint32 Strategy::alphaBetaSeq(int maxDepth, int depth, Sint32 alpha, Sint32 beta
             iter_swap(it, valid.begin()); // O(1), pas de copie
     }
 
-    sortMove(valid);
-    Sint32 bestScore = numeric_limits<Sint32>::min(); // -INFINITY
+    //sortMove(valid);
+    movement bestMove = valid[0];
+    Sint32 bestScore = -INF; // -INFINITY
     for(movement& mv: valid){
         moveInfo info = applyMove(mv);
-        int score = -alphaBetaSeq(maxDepth, depth+1, -beta, -alpha, dummy);
+        int score = -alphaBetaSeqWithTT(depth-1, -beta, -alpha);
         undoMove(info);
         if(score > bestScore) {
             bestScore = score;
@@ -467,15 +526,125 @@ Sint32 Strategy::alphaBetaSeq(int maxDepth, int depth, Sint32 alpha, Sint32 beta
     return bestScore;
 }
 
-void Strategy::computeBestMove () {
+Sint32 Strategy::negamaxPar(int depth, movement &bestMove){
+    if(depth <= 0 || isBoardFull())
+        return estimateCurrentScore();
 
-    movement bestMove;
-    // Iterative deepening:
-    for(int d = 1;;d++){
-        // cout<<"depth: " <<d<<endl;
-        alphaBetaSeq(d, 1, numeric_limits<Sint32>::min(), numeric_limits<Sint32>::max(), bestMove);
-        _saveBestMove(bestMove);
+    Sint32 bestScore = -INF;
+    vector<movement> valid;
+    computeValidMoves(valid);
+
+    if(valid.empty()){
+        Strategy next(*this);
+        next.switchPlayer();
+        movement dummy;
+        return -next.negamaxPar(depth-1, dummy);
     }
 
+    if(depth <= 2){
+        for(movement& mv: valid){
+            moveInfo info = applyMove(mv);
+            movement dummy;
+            Sint32 score = -negamax(depth-1, dummy);
+            undoMove(info);
+            if(score > bestScore){
+                bestScore = score;
+                bestMove = mv;
+            }
+        }
+        return bestScore;
+    }
+    
+    // Lancer chaque coup en parallèle
+    vector<std::future<Sint32>> futures;
+    
+    for(const movement& mv: valid){
+        auto fut = std::async(std::launch::async, [this, mv, depth](){
+            Strategy copy(*this);
+            copy.applyMove(mv);  // Pas besoin de undoMove !
+            movement dummy;
+            return -copy.negamaxPar(depth-1, dummy);
+        });
+        futures.push_back(move(fut));
+    }
+    
+    // Récupérer les résultats
+    for(int i = 0; i < (int)futures.size(); i++){
+        Sint32 score = futures[i].get();
+        if(score > bestScore){
+            bestScore = score;
+            bestMove = valid[i];
+        }
+    }
+    
+    return bestScore;
+}
+
+
+
+void Strategy::computeBestMove () {
+
+    if(_current_player == 0){ // red on minmax
+        movement bestMove;
+        negamaxPar(DEPTH, bestMove);
+        _saveBestMove(bestMove);
+
+    }else
+    {
+        reset();
+        movement bestMove;
+        vector <movement> valid;
+        computeValidMoves(valid); // search all possible validMoves
+
+        // Iterative deepening:
+        for (int d = 1; true; d++)
+        {
+            cout << "depth: " << d << ", current player: " << _current_player << endl;
+            // realize the first alpha beta reccurtion to easy place the las best move at first position
+
+            Sint32 alpha = -INF, beta = INF;
+
+            if (valid.empty())
+            {
+                return; // impossible in our rules because the player isn't invite to play
+            }
+
+            if (d > 1)
+            {
+                auto it = find_if(valid.begin(), valid.end(), [&](const movement &m)
+                {
+                    return m.ox == bestMove.ox && m.oy == bestMove.oy
+                           && m.nx == bestMove.nx && m.ny == bestMove.ny;
+                });
+                if (it != valid.end())
+                    iter_swap(it, valid.begin()); // O(1), pas de copie
+            }
+
+            Sint32 bestScore = -INF; // -INFINITY
+            for (movement &mv: valid)
+            {
+                moveInfo info = applyMove(mv);
+                Sint32 score = -alphaBetaSeq(d - 1, -beta, -alpha);
+                undoMove(info);
+#if DEBUG
+                //cout << "bestscore : " << bestScore<<", move score: "<<score<< endl;
+#endif
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestMove = mv;
+                }
+                if (score > alpha)
+                {
+                    alpha = score;
+                }
+                if (alpha >= beta)
+                {
+                    break;
+                }
+            }
+            _saveBestMove(bestMove);
+        }
+    }
 }
 

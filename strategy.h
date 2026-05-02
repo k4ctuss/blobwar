@@ -6,7 +6,9 @@
 #include "move.h"
 #include "random"
 #include <algorithm>
-#define DEPTH 6
+#include <future>
+
+#define DEPTH 4
 
 enum class TTFlag : uint8_t { EXACT, LOWER, UPPER };
 
@@ -60,9 +62,9 @@ private:
         return hash & (TT_SIZE - 1);
     }
     //! Lookup
-    TTEntry* tt_lookup(uint64_t hash) {
+    TTEntry* tt_lookup(uint64_t hash, int depth) {
         TTEntry& entry = _TT[tt_index(hash)];
-        if (entry.hash == hash) return &entry;
+        if (entry.hash == hash && entry.depth >= depth) return &entry;
         return nullptr;
     }
     //! Store
@@ -152,12 +154,23 @@ public:
     /**
      * implement alpha beta algorithme to find the next bestMove with max depth search (seq algo)
      */
-    Sint32 alphaBetaSeq(int maxDepth, int depth, Sint32 alpha, Sint32 beta, movement &bestMove);
+    Sint32 alphaBetaSeq(int depth, Sint32 alpha, Sint32 beta);
+
+    Sint32 alphaBetaSeqWithTT(int depth, Sint32 alpha, Sint32 beta);
+
+    /**
+     * implement minmax algo with parallel computing
+     * @param depth
+     * @param bestMove
+     * @return
+     */
+    Sint32 negamaxPar(int depth, movement &bestMove);
+
 
     /**
      * reset TT and zobrist hashes table
      */
-     static void reset();
+     void reset();
 
 };
 
